@@ -22,7 +22,7 @@ library SafeMath {
     }
 }
 
-contract TimeLock is AutomationCompatibleInterface {
+contract TenggaraTimelock is AutomationCompatibleInterface {
     using SafeMath for uint256;
     using SafeERC20 for ERC20;
 
