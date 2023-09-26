@@ -43,19 +43,22 @@ describe("Timelock", () => {
   });
 
   describe("Create Timelock", () => {
-    let transaction,
-      currency,
-      balanceSender,
+    let transaction, currency, timelockHash;
+    let timelockAddress;
+    let balanceSender,
       balanceOwner,
-      amount,
-      timelockHash;
+      balanceContract,
+      balanceSenderBefore,
+      balanceContractBefore;
 
     const id = Date.now() + Math.floor(Math.random() * 1000000);
-    const elapsedTime = 7000;
+    const elapsedTime = 11000;
     const timestamp = Math.floor((Date.now() + elapsedTime) / 1000);
+    const amount = toEther(1000);
 
     before(async () => {
-      amount = toEther(1000);
+      timelockAddress = await timelock.getAddress();
+      currency = await token.getAddress();
 
       // Transfer Token from Owner To Sender
       await token.connect(owner).transfer(sender.address, amount);
@@ -63,11 +66,11 @@ describe("Timelock", () => {
       // Approve Token for Timelock
       await token.connect(sender).approve(await timelock.getAddress(), amount);
 
-      balanceSender = await token.connect(sender).balanceOf(sender.address);
-      balanceOwner = await token.connect(owner).balanceOf(owner.address);
-      currency = await token.getAddress();
+      // Balance Before Timelock Creation:
+      balanceSenderBefore = await token.balanceOf(sender.address);
+      balanceContractBefore = await token.balanceOf(timelockAddress);
 
-      // Create timelock
+      // Create Timelock
       transaction = await timelock
         .connect(sender)
         .createTimelock(
@@ -83,34 +86,100 @@ describe("Timelock", () => {
 
       // Timelock hash
       timelockHash = await timelock.listOfTimelockHash(0);
+
+      // Balance After Timelock Creation
+      balanceSender = await token.balanceOf(sender.address);
+      balanceContract = await token.balanceOf(timelockAddress);
     });
 
-    it(`list of timelock hash should not be empty`, async () => {
-      assert(timelockHash);
+    describe("Success", () => {
+      it(`list of timelock hash should not be empty`, async () => {
+        assert(timelockHash);
+      });
+
+      it(`timelock should contains the correct inputs`, async () => {
+        const inputs = await timelock.getTimelock(timelockHash);
+
+        assert.exists(inputs[0], `timelock didn't exist`);
+        assert.equal(inputs[1], id, `timelock id didn't match`);
+        assert.equal(
+          inputs[2],
+          currency,
+          `timelock address contract didn't match`
+        );
+        assert.equal(inputs[3], amount, `amount didn't match`);
+        assert.equal(
+          inputs[4],
+          sender.address,
+          `timelock sender address didn't match`
+        );
+        assert.equal(
+          inputs[5],
+          receiver.address,
+          `timelock receiver address didn't match`
+        );
+        assert.equal(inputs[6], timestamp, `timelock timestamp didn't match`);
+      });
+
+      it("should increase the timelock contract balance", async () => {
+        assert.equal(formatEther(balanceContract), formatEther(amount));
+        assert.equal(formatEther(balanceSender), 0);
+      });
     });
 
-    it(`timelock should contains the correct inputs`, async () => {
-      const inputs = await timelock.getTimelock(timelockHash);
+    describe("Failure", () => {
+      it(`should revert when sender doesn't have the token`, async () => {
+        // Create timelock
+        await expect(
+          timelock
+            .connect(sender)
+            .createTimelock(
+              id,
+              currency,
+              amount,
+              sender.address,
+              receiver.address,
+              timestamp
+            )
+        ).to.be.reverted;
+      });
 
-      assert.exists(inputs[0], `timelock didn't exist`);
-      assert.equal(inputs[1], id, `timelock id didn't match`);
-      assert.equal(
-        inputs[2],
-        currency,
-        `timelock address contract didn't match`
-      );
-      assert.equal(inputs[3], amount, `amount didn't match`);
-      assert.equal(
-        inputs[4],
-        sender.address,
-        `timelock sender address didn't match`
-      );
-      assert.equal(
-        inputs[5],
-        receiver.address,
-        `timelock receiver address didn't match`
-      );
-      assert.equal(inputs[6], timestamp, `timelock timestamp didn't match`);
+      it(`should revert when timestamp already exists`, async () => {
+        // Transfer Token from Owner To Sender
+        await token.connect(owner).transfer(sender.address, amount);
+
+        // Create timelock
+        await expect(
+          timelock
+            .connect(sender)
+            .createTimelock(
+              id,
+              currency,
+              amount,
+              sender.address,
+              receiver.address,
+              timestamp
+            )
+        ).to.be.reverted;
+      });
+
+      it(`should revert when no tokens are approved`, async () => {
+        let newTimestamp = Math.floor((Date.now() + elapsedTime) / 1000);
+
+        // Create timelock
+        await expect(
+          timelock
+            .connect(sender)
+            .createTimelock(
+              id,
+              currency,
+              amount,
+              sender.address,
+              receiver.address,
+              newTimestamp
+            )
+        ).to.be.reverted;
+      });
     });
 
     describe("Cancel Timelock", () => {
@@ -120,18 +189,42 @@ describe("Timelock", () => {
         );
       };
 
-      it(`console`, async () => {});
-
-      describe("Success Cancel", () => {
+      describe("Success", () => {
         it(`should be able to cancel`, async () => {
           await expect(timelock.connect(sender).cancel(timelockHash)).to.be
             .fulfilled;
         });
       });
 
-      describe("Cancel Revert", () => {
-        it(`should revert if not the authorized sender call the contract`, async () => {
+      describe("Failure", () => {
+        before(async () => {
+          // Transfer Token from Owner To Sender
+          await token.connect(owner).transfer(sender.address, amount);
+
+          // Approve Token for Timelock
+          await token
+            .connect(sender)
+            .approve(await timelock.getAddress(), amount);
+
+          // Create a new timelock
+          transaction = await timelock
+            .connect(sender)
+            .createTimelock(
+              id,
+              currency,
+              amount,
+              sender.address,
+              receiver.address,
+              timestamp
+            );
+
+          await transaction.wait();
+        });
+
+        it(`should revert if call by unauthorized sender`, async () => {
           await expect(timelock.connect(receiver).cancel(timelockHash)).to.be
+            .reverted;
+          await expect(timelock.connect(owner).cancel(timelockHash)).to.be
             .reverted;
         });
 
