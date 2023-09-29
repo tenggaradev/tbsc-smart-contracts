@@ -12,6 +12,7 @@ const formatEther = (num) => {
 describe("Timelock", () => {
   let timelock, token, owner, sender, receiver, feeTo;
 
+  const fee = 1 / 100;
   const interval = 60;
 
   before(async () => {
@@ -49,7 +50,8 @@ describe("Timelock", () => {
       balanceOwner,
       balanceContract,
       balanceSenderBefore,
-      balanceContractBefore;
+      balanceContractBefore,
+      balanceFeeTo;
 
     const id = Date.now() + Math.floor(Math.random() * 1000000);
     const elapsedTime = 11000;
@@ -194,6 +196,10 @@ describe("Timelock", () => {
           await expect(timelock.connect(sender).cancel(timelockHash)).to.be
             .fulfilled;
         });
+
+        // Add more test for checking the balance
+        // The balance of the sender should be returned
+        // After the cancel successful
       });
 
       describe("Failure", () => {
@@ -219,6 +225,9 @@ describe("Timelock", () => {
             );
 
           await transaction.wait();
+
+          // Timelock hash
+          timelockHash = await timelock.listOfTimelockHash(0);
         });
 
         it(`should revert if call by unauthorized sender`, async () => {
@@ -232,6 +241,108 @@ describe("Timelock", () => {
           await testAfterExpired();
           await expect(timelock.connect(sender).cancel(timelockHash)).to.be
             .reverted;
+        });
+      });
+    });
+
+    describe("Release Timelock", () => {
+      // Should create a new timelock
+      before(async () => {
+        const newElapsedTime = 30000;
+        const newTimestamp = Math.floor((Date.now() + newElapsedTime) / 1000);
+
+        // Transfer Token from Owner To Sender
+        await token.connect(owner).transfer(sender.address, amount);
+
+        // Approve Token for Timelock
+        await token
+          .connect(sender)
+          .approve(await timelock.getAddress(), amount);
+
+        // Create Timelock
+        transaction = await timelock
+          .connect(sender)
+          .createTimelock(
+            id,
+            currency,
+            amount,
+            sender.address,
+            receiver.address,
+            newTimestamp
+          );
+
+        await transaction.wait();
+      });
+
+      // Then try to release before it's expired
+      describe("Failure", () => {
+        let newTimelockHash;
+
+        before(async () => {
+          newTimelockHash = await timelock.listOfTimelockHash(2);
+        });
+
+        it(`should not be able to release before the timestamp expired`, async () => {
+          // Check block.timestamp
+          // const blockNumBefore = await ethers.provider.getBlockNumber();
+          // const blockBefore = await ethers.provider.getBlock(blockNumBefore);
+          // const timestampBefore = blockBefore.timestamp;
+
+          // Check timelock.timestamp
+          // const inputs = await timelock.getTimelock(newTimelockHash);
+          // console.log("timestamp timelock", inputs[6]);
+
+          await expect(timelock.connect(owner).release(newTimelockHash)).to.be
+            .reverted;
+        });
+      });
+
+      describe("Success", () => {
+        let newTimelockHash,
+          balanceReceiverBefore,
+          balanceReceiver,
+          balanceFeeToBefore,
+          balanceFeeTo;
+
+        before(async () => {
+          balanceReceiverBefore = await token.balanceOf(receiver.address);
+          balanceFeeToBefore = await token.balanceOf(feeTo.address);
+          newTimelockHash = await timelock.listOfTimelockHash(1);
+        });
+
+        // it("should console", async () => {
+        //   console.log(
+        //     "balanceReceiverBefore",
+        //     formatEther(balanceReceiverBefore)
+        //   );
+        //   console.log("balanceFeeTo", formatEther(balanceFeeToBefore));
+        // });
+
+        it(`should be able to release the timelock`, async () => {
+          await expect(timelock.connect(owner).release(newTimelockHash)).to.be
+            .fulfilled;
+        });
+
+        it(`should transfer the funds to receiver`, async () => {
+          balanceReceiver = await token.balanceOf(receiver.address);
+
+          const amountMinusFee =
+            formatEther(amount) - formatEther(amount) * fee;
+          assert.equal(
+            formatEther(balanceReceiver),
+            amountMinusFee,
+            `receiver balance should equal ${amountMinusFee}`
+          );
+        });
+
+        it(`should transfer the funds to feeTo`, async () => {
+          const amountFee = formatEther(amount) * fee;
+          balanceFeeTo = await token.balanceOf(feeTo.address);
+          assert.equal(
+            formatEther(balanceFeeTo),
+            amountFee,
+            `feeTo balance should equal ${amountFee}`
+          );
         });
       });
     });
