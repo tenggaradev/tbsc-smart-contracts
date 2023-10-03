@@ -1,4 +1,5 @@
 const { assert, expect } = require("chai");
+const { Contract } = require("ethers");
 const { ethers } = require("hardhat");
 
 const toEther = (num) => {
@@ -11,6 +12,7 @@ const formatEther = (num) => {
 
 describe("Timelock", () => {
   let timelock, token, owner, sender, receiver, feeTo;
+  let topic, interface;
 
   const fee = 1 / 100;
   const interval = 60;
@@ -24,6 +26,8 @@ describe("Timelock", () => {
     const Token = await ethers.getContractFactory("Token");
     token = await Token.deploy("Test", "TEST", "1000000");
     await token.waitForDeployment();
+
+    // Get the topic of the event
   });
 
   describe("Deployment", () => {
@@ -44,7 +48,7 @@ describe("Timelock", () => {
   });
 
   describe("Create Timelock", () => {
-    let transaction, currency, timelockHash;
+    let transaction, receit, currency, timelockHash;
     let timelockAddress;
     let balanceSender,
       balanceOwner,
@@ -84,7 +88,7 @@ describe("Timelock", () => {
           timestamp
         );
 
-      await transaction.wait();
+      receit = await transaction.wait();
 
       // Timelock hash
       timelockHash = await timelock.listOfTimelockHash(0);
@@ -95,6 +99,15 @@ describe("Timelock", () => {
     });
 
     describe("Success", () => {
+      let eventCreate;
+
+      before(async () => {
+        const eventFragment = timelock.interface.getEvent("Create");
+        const eventTopic = eventFragment.topicHash;
+        const log = receit.logs.find((x) => x.topics.indexOf(eventTopic) >= 0);
+        eventCreate = timelock.interface.parseLog(log);
+      });
+
       it(`list of timelock hash should not be empty`, async () => {
         assert(timelockHash);
       });
@@ -125,7 +138,16 @@ describe("Timelock", () => {
 
       it("should increase the timelock contract balance", async () => {
         assert.equal(formatEther(balanceContract), formatEther(amount));
+      });
+
+      it("should decrease the sender balance", async () => {
         assert.equal(formatEther(balanceSender), 0);
+      });
+
+      it("should emit Create event", async () => {
+        assert(eventCreate, "Expected create event to be emitted");
+        assert.equal(eventCreate.args.length, 1);
+        assert.equal(eventCreate.args[0], timelockHash);
       });
     });
 
