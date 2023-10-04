@@ -26,8 +26,6 @@ describe("Timelock", () => {
     const Token = await ethers.getContractFactory("Token");
     token = await Token.deploy("Test", "TEST", "1000000");
     await token.waitForDeployment();
-
-    // Get the topic of the event
   });
 
   describe("Deployment", () => {
@@ -51,7 +49,6 @@ describe("Timelock", () => {
     let transaction, receit, currency, timelockHash;
     let timelockAddress;
     let balanceSender,
-      balanceOwner,
       balanceContract,
       balanceSenderBefore,
       balanceContractBefore,
@@ -207,21 +204,67 @@ describe("Timelock", () => {
     });
 
     describe("Cancel Timelock", () => {
+      let cancelTransaction,
+        cancelReceit,
+        balanceSenderBeforeCancel,
+        balanceSenderAfter,
+        balanceContractAfter;
+
       const testAfterExpired = async () => {
         return new Promise((resolve) =>
           setTimeout(resolve, elapsedTime + 5000)
         );
       };
 
+      before(async () => {
+        // Balance before cancel
+        balanceSenderBeforeCancel = await token.balanceOf(sender.address);
+
+        cancelTransaction = await timelock.connect(sender).cancel(timelockHash);
+        cancelReceit = await cancelTransaction.wait();
+
+        // Balance after cancel
+        balanceSenderAfter = await token.balanceOf(sender.address);
+        balanceContractAfter = await token.balanceOf(timelockAddress);
+      });
+
       describe("Success", () => {
-        it(`should be able to cancel`, async () => {
-          await expect(timelock.connect(sender).cancel(timelockHash)).to.be
-            .fulfilled;
+        let cancelEvent;
+
+        before(async () => {
+          const eventFragment = timelock.interface.getEvent("Cancel");
+          const eventTopic = eventFragment.topicHash;
+          const log = cancelReceit.logs.find(
+            (x) => x.topics.indexOf(eventTopic) >= 0
+          );
+          cancelEvent = timelock.interface.parseLog(log);
         });
 
-        // Add more test for checking the balance
-        // The balance of the sender should be returned
-        // After the cancel successful
+        it(`should be able to cancel`, async () => {
+          assert(cancelReceit, "Expected to fullfiled the cancel transaction");
+        });
+
+        it(`should decrease the contract balance`, async () => {
+          assert.equal(
+            formatEther(balanceContractAfter),
+            formatEther(balanceContractBefore)
+          );
+        });
+
+        it(`should increase the sender balance`, async () => {
+          const _balanceSender = formatEther(balanceSenderBefore + amount);
+          assert.equal(formatEther(balanceSenderAfter), _balanceSender);
+        });
+
+        it(`should emit Cancel event`, async () => {
+          assert(cancelEvent, "Expected to emit Cancel event");
+          assert.equal(cancelEvent.args.length, 1, "Expected 1 input param");
+          assert.equal(
+            cancelEvent.args[0],
+            timelockHash,
+            `Expected input to equal ${timelockHash}`
+          );
+        });
       });
 
       describe("Failure", () => {
@@ -331,14 +374,6 @@ describe("Timelock", () => {
           balanceFeeToBefore = await token.balanceOf(feeTo.address);
           newTimelockHash = await timelock.listOfTimelockHash(1);
         });
-
-        // it("should console", async () => {
-        //   console.log(
-        //     "balanceReceiverBefore",
-        //     formatEther(balanceReceiverBefore)
-        //   );
-        //   console.log("balanceFeeTo", formatEther(balanceFeeToBefore));
-        // });
 
         it(`should be able to release the timelock`, async () => {
           await expect(timelock.connect(owner).release(newTimelockHash)).to.be

@@ -243,7 +243,6 @@ contract TenggaraTimelock is AutomationCompatibleInterface {
         emit Release(_tradeHash);
     }
 
-    // Getter, should be public?
     function getTimelock(
         bytes32 _tradeHash
     ) public view returns (Timelock memory) {
