@@ -1,9 +1,8 @@
 const hre = require("hardhat");
 
 async function main() {
-  const feeTo = "0x50848994d77080b5f8dcaa03d8af2ade726b3092";
-  const interval = 60;
-  const timeLock = await hre.ethers.deployContract("TenggaraTimelock", [feeTo, interval]);
+  const feeTo = "0xBdDDA29c150Df2D57AbE8A19c8664dAc20Ade202";
+  const timeLock = await hre.ethers.deployContract("TenggaraTimelock", [feeTo]);
 
   await timeLock.waitForDeployment();
 

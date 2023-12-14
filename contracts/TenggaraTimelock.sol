@@ -3,7 +3,6 @@ pragma solidity ^0.8.4;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@chainlink/contracts/src/v0.8/AutomationCompatible.sol";
 
 library SafeMath {
     function sub(uint256 a, uint256 b) internal pure returns (uint256) {
@@ -22,15 +21,13 @@ library SafeMath {
     }
 }
 
-contract TenggaraTimelock is AutomationCompatibleInterface {
+contract TenggaraTimelock {
     using SafeMath for uint256;
     using SafeERC20 for ERC20;
 
     /***********************
     +       Globals        +
     ***********************/
-    uint256 public immutable interval;
-    uint256 public lastTimeStamp;
 
     address public owner;
     address public feeTo;
@@ -48,7 +45,6 @@ contract TenggaraTimelock is AutomationCompatibleInterface {
     bytes32[] public listOfTimelockHash;
 
     mapping(bytes32 => Timelock) timelocks;
-    mapping(address => bytes32[]) public addressToTimelockHash;
 
     /***********************
     +       Events        +
@@ -62,17 +58,10 @@ contract TenggaraTimelock is AutomationCompatibleInterface {
     +     Constructor      +
     ***********************/
 
-    constructor(address _feeTo, uint256 _interval) {
+    constructor(address _feeTo) {
         owner = msg.sender;
         feeTo = _feeTo;
-        interval = _interval;
-        lastTimeStamp = block.timestamp;
     }
-
-    // modifier onlyOperators() {
-    //     require(msg.sender == operators);
-    //     _;
-    // }
 
     /***********************
     +    Create Timelock   +
@@ -113,7 +102,6 @@ contract TenggaraTimelock is AutomationCompatibleInterface {
 
         ERC20(_currency).safeTransferFrom(msg.sender, address(this), _amount);
         listOfTimelockHash.push(_tradeHash);
-        addressToTimelockHash[msg.sender].push(_tradeHash);
         emit Create(_tradeHash);
     }
 
@@ -125,10 +113,6 @@ contract TenggaraTimelock is AutomationCompatibleInterface {
         address _receiver,
         uint256 _timestamp
     ) external payable {
-        // require(
-        //     ERC20(_currency).balanceOf(msg.sender) >= _amount,
-        //     "Not enough token"
-        // );
         require(msg.value >= _amount);
         bytes32 _tradeHash = keccak256(
             abi.encodePacked(
@@ -151,12 +135,10 @@ contract TenggaraTimelock is AutomationCompatibleInterface {
             _timestamp
         );
 
-        // ERC20(_currency).safeTransferFrom(msg.sender, address(this), _amount);
         (bool sent, ) = address(this).call{value: msg.value}("");
         require(sent, "Failed to send Native");
 
         listOfTimelockHash.push(_tradeHash);
-        addressToTimelockHash[msg.sender].push(_tradeHash);
         emit Create(_tradeHash);
     }
 
@@ -188,11 +170,6 @@ contract TenggaraTimelock is AutomationCompatibleInterface {
         }
 
         delete timelocks[_tradeHash];
-        for (uint256 i = 0; i < addressToTimelockHash[msg.sender].length; i++) {
-            if (addressToTimelockHash[msg.sender][i] == _tradeHash) {
-                delete addressToTimelockHash[msg.sender][i];
-            }
-        }
         emit Cancel(_tradeHash);
     }
 
@@ -230,16 +207,6 @@ contract TenggaraTimelock is AutomationCompatibleInterface {
         }
 
         delete timelocks[_tradeHash];
-
-        // Update addressToTimelockHash
-        address _sender = timelock.sender;
-
-        for (uint256 i = 0; i < addressToTimelockHash[_sender].length; i++) {
-            if (addressToTimelockHash[_sender][i] == _tradeHash) {
-                delete addressToTimelockHash[_sender][i];
-            }
-        }
-
         emit Release(_tradeHash);
     }
 
@@ -254,9 +221,9 @@ contract TenggaraTimelock is AutomationCompatibleInterface {
     ****************************/
 
     function checkTimestamp()
-        public
+        private
         view
-        returns (bool isEmpty, uint256 relesaseTimelock)
+        returns (bool isNotEmpty, uint256 relesaseTimelock)
     {
         uint256 length = 0;
 
@@ -274,19 +241,16 @@ contract TenggaraTimelock is AutomationCompatibleInterface {
         }
     }
 
-    function checkUpkeep(
-        bytes calldata /* checkData */
-    )
+    function checkAutoRelease()
         external
         view
-        override
-        returns (bool upkeepNeeded, bytes memory performData)
+        returns (bool autoReleaseNeeded, bytes memory performData)
     {
-        (bool isEmpty, uint256 length) = checkTimestamp();
+        (bool isNotEmpty, uint256 length) = checkTimestamp();
         bytes32[] memory _timelockRelease = new bytes32[](length);
         uint256 order = 0;
 
-        if (isEmpty) {
+        if (isNotEmpty) {
             for (uint256 i = 0; i < listOfTimelockHash.length; i++) {
                 Timelock memory timelock = timelocks[listOfTimelockHash[i]];
                 if (timelock.exists && timelock.timestamp <= block.timestamp) {
@@ -295,13 +259,13 @@ contract TenggaraTimelock is AutomationCompatibleInterface {
                 }
             }
 
-            return (isEmpty, abi.encode(_timelockRelease));
+            return (isNotEmpty, abi.encode(_timelockRelease));
         }
 
-        return (isEmpty, abi.encode(_timelockRelease));
+        return (isNotEmpty, abi.encode(_timelockRelease));
     }
 
-    function performUpkeep(bytes calldata performData) external override {
+    function performAutoRelease(bytes calldata performData) external {
         bytes32[] memory tradeHash = abi.decode(performData, (bytes32[]));
 
         for (uint256 i = 0; i < tradeHash.length; i++) {

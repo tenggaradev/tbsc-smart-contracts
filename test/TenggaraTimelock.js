@@ -15,12 +15,11 @@ describe("Timelock", () => {
   let topic, interface;
 
   const fee = 1 / 100;
-  const interval = 60;
 
   before(async () => {
     [owner, sender, receiver, feeTo] = await ethers.getSigners();
     const Timelock = await ethers.getContractFactory("TenggaraTimelock");
-    timelock = await Timelock.deploy(feeTo, interval);
+    timelock = await Timelock.deploy(feeTo);
     await timelock.waitForDeployment();
 
     const Token = await ethers.getContractFactory("Token");
@@ -32,11 +31,6 @@ describe("Timelock", () => {
     it(`Should set the right feeTo account`, async () => {
       const _feeTo = await timelock.feeTo.call();
       assert.equal(_feeTo, feeTo.address);
-    });
-
-    it(`Should set the right interval`, async () => {
-      const _interval = await timelock.interval.call();
-      assert.equal(_interval, interval);
     });
 
     it(`Should set the right contract owner`, async () => {

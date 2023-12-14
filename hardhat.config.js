@@ -10,6 +10,10 @@ module.exports = {
       url: process.env.ANKR_RPC_URL,
       accounts: [process.env.PRIVATE_KEY_1],
     },
+    polygon: {
+      url: process.env.QUICK_RPC_URL_MAINNET,
+      accounts: [process.env.PRIVATE_KEY_1],
+    },
   },
   etherscan: {
     apiKey: process.env.ETHERSCAN_API_KEY,
